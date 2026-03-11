@@ -986,3 +986,43 @@ header {
     color: var(--text-secondary);
     font-family: monospace;
 }
+
+@media (max-width: 900px) {
+    .history-column {
+        max-height: none;
+    }
+
+    .piece-info-card {
+        margin-top: 0.75rem;
+        padding: 1rem;
+    }
+
+    .piece-portrait {
+        width: 56px;
+        height: 56px;
+    }
+
+    .piece-info-name {
+        font-size: 1rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .piece-info-card {
+        padding: 0.75rem;
+        margin-top: 0.5rem;
+    }
+
+    .piece-portrait {
+        width: 48px;
+        height: 48px;
+    }
+
+    .piece-info-name {
+        font-size: 0.9rem;
+    }
+
+    .piece-info-placeholder span {
+        font-size: 1.5rem;
+    }
+}

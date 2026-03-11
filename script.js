@@ -780,12 +780,13 @@ function applyAppetiteForMove(move, gameObj) {
         delete appetiteMap[rookFrom];
     }
 
-    // Убыль сытости у всех фигур хода
+    // Убыль сытости у фигур СОПЕРНИКА (чтобы еда показывалась полностью в текущем ходе)
+    const opponentColor = move.color === 'w' ? 'b' : 'w';
     const board = gameObj.board();
     for (let r = 0; r < 8; r++) {
         for (let c = 0; c < 8; c++) {
             const p = board[r][c];
-            if (p && p.color === move.color) {
+            if (p && p.color === opponentColor) {
                 const sq = String.fromCharCode('a'.charCodeAt(0) + c) + (8 - r);
                 appetiteMap[sq] = Math.max(0, (appetiteMap[sq] || 0) - DECAY);
             }
