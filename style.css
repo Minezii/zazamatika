@@ -1113,22 +1113,11 @@ header {
     height: 8px;
     background: rgba(255, 255, 255, 0.1);
     border-radius: 99px;
-    overflow: visible;
+    overflow: hidden;
     position: relative;
     width: 100%;
 }
 
-.morale-bar-wrap::after {
-    content: '';
-    position: absolute;
-    left: 50%;
-    top: -1px;
-    bottom: -1px;
-    width: 2px;
-    background: rgba(255, 255, 255, 0.3);
-    transform: translateX(-50%);
-    border-radius: 2px;
-}
 
 .morale-bar-neg {
     position: absolute;
@@ -1137,8 +1126,21 @@ header {
     bottom: 0;
     background: #ef4444;
     width: 0%;
+    max-width: 50%;
     border-radius: 99px 0 0 99px;
     transition: width 0.4s ease;
+}
+
+.morale-bar-center {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: rgba(255, 255, 255, 0.4);
+    transform: translateX(-50%);
+    pointer-events: none;
+    z-index: 2;
 }
 
 .morale-bar-pos {
@@ -1148,6 +1150,7 @@ header {
     bottom: 0;
     background: #3b82f6;
     width: 0%;
+    max-width: 50%;
     border-radius: 0 99px 99px 0;
     transition: width 0.4s ease;
 }

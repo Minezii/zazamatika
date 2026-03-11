@@ -1110,59 +1110,53 @@ function activateAbility(square) {
     moraleMap[square] = 0;
     updatePieceInfoPanel();
 
-    if (morale === 10) {
-        // Сбрасываем мораль локально
-        moraleMap[square] = 0;
-        updatePieceInfoPanel();
-
-        if (piece.type === 'p') {
-            showAbilityChoice('Выберите превращение', [
-                { label: 'Оставить пешкой', value: 'p' },
-                { label: 'Конь', value: 'n' },
-                { label: 'Слон', value: 'b' }
-            ], (val) => {
-                if (val !== 'p') {
-                    game.remove(square);
-                    game.put({ type: val, color: piece.color }, square);
-                    initBoard();
-                    renderHighlights();
-                    updateStatus();
-                }
-                emitAbility({ type: 'pawn_change', square, pieceType: val });
-                showToast('Способность пешки активирована');
-            });
-        } else if (piece.type === 'n') {
-            activeAbility = { type: 'knight_teleport', square: square };
-            showToast('Выберите пустую клетку для телепортации коня');
-            renderHighlights();
-        } else if (piece.type === 'b') {
-            xrayBishop = square;
-            emitAbility({ type: 'bishop_xray', square });
-            showToast('Слон получил сквозное взятие на 1 ход');
-            renderHighlights();
-        } else if (piece.type === 'r') {
-            activeAbility = { type: 'rook_multi', square: square, targets: [] };
-            showToast('Выберите до 3 фигур по линии для захвата');
-            renderHighlights();
-        } else if (piece.type === 'q') {
-            immortalSquares[square] = 3;
-            emitAbility({ type: 'queen_immortal', square });
-            showToast('Ферзь стал бессмертным на 3 хода');
-            updatePieceInfoPanel();
-            renderHighlights();
-        } else if (piece.type === 'k') {
-            showAbilityChoice('Выберите фигуру для спавна', [
-                { label: 'Ферзь', value: 'q' },
-                { label: 'Ладья', value: 'r' },
-                { label: 'Слон', value: 'b' },
-                { label: 'Конь', value: 'n' },
-                { label: 'Пешка', value: 'p' }
-            ], (val) => {
-                activeAbility = { type: 'king_spawn', square: square, pieceType: val };
-                showToast(`Выберите пустую клетку для спавна фигуры: ${val}`);
+    if (piece.type === 'p') {
+        showAbilityChoice('Выберите превращение', [
+            { label: 'Оставить пешкой', value: 'p' },
+            { label: 'Конь', value: 'n' },
+            { label: 'Слон', value: 'b' }
+        ], (val) => {
+            if (val !== 'p') {
+                game.remove(square);
+                game.put({ type: val, color: piece.color }, square);
+                initBoard();
                 renderHighlights();
-            });
-        }
+                updateStatus();
+            }
+            emitAbility({ type: 'pawn_change', square, pieceType: val });
+            showToast('Способность пешки активирована');
+        });
+    } else if (piece.type === 'n') {
+        activeAbility = { type: 'knight_teleport', square: square };
+        showToast('Выберите пустую клетку для телепортации коня');
+        renderHighlights();
+    } else if (piece.type === 'b') {
+        xrayBishop = square;
+        emitAbility({ type: 'bishop_xray', square });
+        showToast('Слон получил сквозное взятие на 1 ход');
+        renderHighlights();
+    } else if (piece.type === 'r') {
+        activeAbility = { type: 'rook_multi', square: square, targets: [] };
+        showToast('Выберите до 3 фигур по линии для захвата (клик на ладью для подтверждения)');
+        renderHighlights();
+    } else if (piece.type === 'q') {
+        immortalSquares[square] = 3;
+        emitAbility({ type: 'queen_immortal', square });
+        showToast('Ферзь стал бессмертным на 3 хода');
+        updatePieceInfoPanel();
+        renderHighlights();
+    } else if (piece.type === 'k') {
+        showAbilityChoice('Выберите фигуру для спавна', [
+            { label: 'Ферзь', value: 'q' },
+            { label: 'Ладья', value: 'r' },
+            { label: 'Слон', value: 'b' },
+            { label: 'Конь', value: 'n' },
+            { label: 'Пешка', value: 'p' }
+        ], (val) => {
+            activeAbility = { type: 'king_spawn', square: square, pieceType: val };
+            showToast(`Выберите пустую клетку для спавна фигуры`);
+            renderHighlights();
+        });
     }
 }
 
