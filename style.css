@@ -901,3 +901,88 @@ header {
 .toast.show {
     transform: translateX(0);
 }
+
+/* --- Информационная панель фигуры --- */
+.piece-info-card {
+    padding: 1.25rem;
+    margin-top: 1rem;
+}
+
+.piece-info-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--text-secondary);
+    padding: 1rem 0;
+}
+
+.piece-info-placeholder span {
+    font-size: 2rem;
+    opacity: 0.4;
+}
+
+.piece-info-placeholder p {
+    margin: 0;
+    font-size: 0.9rem;
+}
+
+.piece-info-content {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.piece-portrait {
+    width: 72px;
+    height: 72px;
+    flex-shrink: 0;
+    filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.5));
+}
+
+.piece-info-stats {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.piece-info-name {
+    font-weight: 700;
+    font-size: 1.1rem;
+    color: var(--text-primary);
+}
+
+.stat-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.stat-label {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.satiety-bar-wrap {
+    height: 8px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 99px;
+    overflow: hidden;
+    width: 100%;
+}
+
+.satiety-bar-fill {
+    height: 100%;
+    border-radius: 99px;
+    background: #22c55e;
+    transition: width 0.4s ease, background 0.4s ease;
+    width: 0%;
+}
+
+.satiety-value {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    font-family: monospace;
+}

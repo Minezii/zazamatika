@@ -134,6 +134,27 @@
                         <button id="undo-btn" class="btn btn-danger" disabled>Отменить ход</button>
                     </div>
                 </div>
+
+                <!-- Панель информации о фигуре -->
+                <div class="card piece-info-card" id="piece-info-panel">
+                    <div id="piece-info-empty" class="piece-info-placeholder">
+                        <span>♟</span>
+                        <p>Нажмите на фигуру</p>
+                    </div>
+                    <div id="piece-info-content" class="piece-info-content" style="display:none;">
+                        <img id="piece-info-img" class="piece-portrait" src="" alt="">
+                        <div class="piece-info-stats">
+                            <div id="piece-info-name" class="piece-info-name"></div>
+                            <div class="stat-row">
+                                <div class="stat-label">🍖 Сытость</div>
+                                <div class="satiety-bar-wrap">
+                                    <div class="satiety-bar-fill" id="satiety-bar-fill"></div>
+                                </div>
+                                <span class="satiety-value" id="satiety-value"></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 

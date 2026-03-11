@@ -52,6 +52,11 @@ let currentRoomId = null;
 // Переворот доски
 let isBoardFlipped = false;
 
+// --- АППЕТИТ ---
+const pieceMaxSatiety = { p: 10, n: 30, b: 30, r: 50, q: 90, k: 100 };
+const pieceNames = { p: 'Пешка', n: 'Конь', b: 'Слон', r: 'Ладья', q: 'Ферзь', k: 'Король' };
+let appetiteMap = {}; // { square: currentSatiety }
+
 function getSquareCoords(sq) {
     if (isBoardFlipped) {
         return {
@@ -212,7 +217,7 @@ function createPieceDOM(sq, color, type) {
         }
 
         selectedSquare = pieceSq;
-        validMoves = game.moves({ square: pieceSq, verbose: true });
+        validMoves = filterMovesByAppetite(game.moves({ square: pieceSq, verbose: true }));
         renderHighlights();
 
         e.dataTransfer.effectAllowed = 'move';
@@ -250,6 +255,10 @@ function renderHighlights() {
 function handleSquareClick(square) {
     if (currentHistoryIndex < historyMoves.length - 1) return; // Блокировка хода в прошлом
 
+    // Показываем инфо о фигуре при клике на любую клетку
+    const clickedPiece = game.get(square);
+    if (clickedPiece) showPieceInfo(square);
+
     if (selectedSquare) {
         if (makeMove(selectedSquare, square, 'q')) return;
     }
@@ -259,7 +268,7 @@ function handleSquareClick(square) {
         if (isMultiplayer && piece.color !== myColor) return; // Блокировка
 
         selectedSquare = square;
-        validMoves = game.moves({ square: square, verbose: true });
+        validMoves = filterMovesByAppetite(game.moves({ square: square, verbose: true }));
     } else {
         selectedSquare = null;
         validMoves = [];
@@ -279,6 +288,10 @@ function makeMove(from, to, promotion = 'q', emit = true) {
     if (move) {
         historyMoves.push(move);
         currentHistoryIndex = historyMoves.length - 1;
+
+        // Обновляем аппетит
+        applyAppetiteForMove(move, game);
+        updatePieceInfoPanel();
 
         if (isMultiplayer && emit && socket) {
             socket.emit('make_move', { roomId: currentRoomId, move: move });
@@ -599,6 +612,8 @@ function jumpToHistory(index) {
     renderHighlights();
     updateStatus();
     updateHistoryUI();
+    rebuildAppetiteMap();
+    updatePieceInfoPanel();
 }
 
 btnPrev.addEventListener('click', () => {
@@ -642,6 +657,7 @@ function resetGameData() {
     currentHistoryIndex = -1;
     selectedSquare = null;
     validMoves = [];
+    appetiteMap = {};
 
     isBoardFlipped = isMultiplayer && (myColor === 'b');
     const colEl = document.querySelector('.board-column');
@@ -651,6 +667,8 @@ function resetGameData() {
     }
 
     initBoard();
+    initAppetiteMap();
+    clearPieceInfo();
     renderHighlights();
     updateStatus();
     updateHistoryUI();
@@ -704,6 +722,144 @@ function showToast(message) {
         toast.classList.remove('show');
         setTimeout(() => toast.remove(), 300);
     }, 3500);
+}
+
+// --- АППЕТИТ: ФУНКЦИИ ---
+function initAppetiteMap() {
+    appetiteMap = {};
+    const board = game.board();
+    for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+            if (board[r][c]) {
+                const sq = String.fromCharCode('a'.charCodeAt(0) + c) + (8 - r);
+                appetiteMap[sq] = 0;
+            }
+        }
+    }
+}
+
+function filterMovesByAppetite(moves) {
+    return moves.filter(move => {
+        if (!move.captured) return true;
+        const currentSatiety = appetiteMap[move.from] || 0;
+        const maxSat = pieceMaxSatiety[move.piece];
+        const foodValue = pieceMaxSatiety[move.captured];
+        return currentSatiety + foodValue <= maxSat;
+    });
+}
+
+function applyAppetiteForMove(move, gameObj) {
+    const DECAY = 5;
+    const currentSatiety = appetiteMap[move.from] || 0;
+
+    delete appetiteMap[move.from];
+
+    if (move.captured) {
+        let capturedSq = move.to;
+        if (move.flags.includes('e')) capturedSq = move.to[0] + move.from[1];
+        delete appetiteMap[capturedSq];
+
+        const movingType = move.promotion || move.piece;
+        const maxSat = pieceMaxSatiety[movingType];
+        const foodValue = pieceMaxSatiety[move.captured];
+        appetiteMap[move.to] = Math.min(currentSatiety + foodValue, maxSat);
+    } else {
+        appetiteMap[move.to] = currentSatiety;
+    }
+
+    if (move.promotion) {
+        const newMax = pieceMaxSatiety[move.promotion];
+        appetiteMap[move.to] = Math.min(appetiteMap[move.to] || 0, newMax);
+    }
+
+    // Рокировка — двигаем ладью в appetiteMap
+    if (move.flags.includes('k') || move.flags.includes('q')) {
+        const rookFrom = (move.flags.includes('k') ? 'h' : 'a') + move.from[1];
+        const rookTo = (move.flags.includes('k') ? 'f' : 'd') + move.from[1];
+        appetiteMap[rookTo] = appetiteMap[rookFrom] || 0;
+        delete appetiteMap[rookFrom];
+    }
+
+    // Убыль сытости у всех фигур хода
+    const board = gameObj.board();
+    for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+            const p = board[r][c];
+            if (p && p.color === move.color) {
+                const sq = String.fromCharCode('a'.charCodeAt(0) + c) + (8 - r);
+                appetiteMap[sq] = Math.max(0, (appetiteMap[sq] || 0) - DECAY);
+            }
+        }
+    }
+}
+
+function rebuildAppetiteMap() {
+    const tempGame = new Chess();
+    appetiteMap = {};
+    const initBoard = tempGame.board();
+    for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+            if (initBoard[r][c]) {
+                const sq = String.fromCharCode('a'.charCodeAt(0) + c) + (8 - r);
+                appetiteMap[sq] = 0;
+            }
+        }
+    }
+
+    for (let i = 0; i <= currentHistoryIndex; i++) {
+        const move = historyMoves[i];
+        tempGame.move(move);
+        applyAppetiteForMove(move, tempGame);
+    }
+}
+
+// --- АППЕТИТ: UI ---
+let selectedInfoSquare = null;
+
+function showPieceInfo(square) {
+    const piece = game.get(square);
+    const emptyEl = document.getElementById('piece-info-empty');
+    const contentEl = document.getElementById('piece-info-content');
+    if (!piece || !emptyEl || !contentEl) return;
+
+    selectedInfoSquare = square;
+    const satiety = appetiteMap[square] || 0;
+    const maxSat = pieceMaxSatiety[piece.type];
+    const pct = maxSat > 0 ? (satiety / maxSat) * 100 : 0;
+
+    document.getElementById('piece-info-img').src = pieceImages[piece.color][piece.type];
+    document.getElementById('piece-info-name').innerText =
+        pieceNames[piece.type] + (piece.color === 'w' ? ' (белая)' : ' (чёрная)');
+
+    const fill = document.getElementById('satiety-bar-fill');
+    fill.style.width = pct + '%';
+    if (pct >= 80) fill.style.background = '#ef4444'; // красный — почти полная
+    else if (pct >= 40) fill.style.background = '#eab308'; // жёлтый — средняя
+    else fill.style.background = '#22c55e'; // зелёный — голодная
+
+    document.getElementById('satiety-value').innerText = `${satiety}/${maxSat}`;
+
+    emptyEl.style.display = 'none';
+    contentEl.style.display = 'flex';
+}
+
+function updatePieceInfoPanel() {
+    if (selectedInfoSquare) {
+        const piece = game.get(selectedInfoSquare);
+        if (piece) {
+            showPieceInfo(selectedInfoSquare);
+        } else {
+            clearPieceInfo();
+        }
+    }
+}
+
+function clearPieceInfo() {
+    selectedInfoSquare = null;
+    const emptyEl = document.getElementById('piece-info-empty');
+    const contentEl = document.getElementById('piece-info-content');
+    if (emptyEl) emptyEl.style.display = 'flex';
+    if (contentEl) contentEl.style.display = 'none';
 }
 
 // --- ПРОФИЛЬ ПОЛЬЗОВАТЕЛЯ ---
