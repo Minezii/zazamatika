@@ -960,6 +960,12 @@ function applyAppetiteForMove(move, gameObj, ownPieceSquares) {
         delete moraleMap[rookFrom];
         delete immortalSquares[rookFrom];
     }
+
+    // Сохраняем снимок бессмертия для отмены (deep copy)
+    // Сохраняем снимки состояния для отмены (deep copy)
+    move._appetiteSnapshot = JSON.parse(JSON.stringify(appetiteMap));
+    move._moraleSnapshot = JSON.parse(JSON.stringify(moraleMap));
+    move._immortalSnapshot = JSON.parse(JSON.stringify(immortalSquares));
 }
 
 function rebuildAppetiteMap() {
@@ -994,8 +1000,26 @@ function rebuildAppetiteMap() {
                 }
             }
         }
-        tempGame.move(move);
+        if (move.isAbility) {
+            // Ручное обновление для способностей, которые chess.js не переваривает
+            const piece = tempGame.remove(move.from);
+            tempGame.put({ type: move.promotion || move.piece, color: move.color }, move.to);
+            if (move.rookMultiTargets) {
+                // Удаляем съеденные ладьей фигуры
+                for (const t of move.rookMultiTargets) {
+                    tempGame.remove(t);
+                }
+            }
+        } else {
+            tempGame.move(move);
+        }
+
         applyAppetiteForMove(move, tempGame, ownSquares);
+
+        // Восстанавливаем мораль и аппетит из снимков, если они есть (для полной точности при способностях)
+        if (move._appetiteSnapshot) appetiteMap = JSON.parse(JSON.stringify(move._appetiteSnapshot));
+        if (move._moraleSnapshot) moraleMap = JSON.parse(JSON.stringify(move._moraleSnapshot));
+        if (move._immortalSnapshot) immortalSquares = JSON.parse(JSON.stringify(move._immortalSnapshot));
     }
 }
 
@@ -1111,21 +1135,37 @@ function activateAbility(square) {
     updatePieceInfoPanel();
 
     if (piece.type === 'p') {
-        showAbilityChoice('Выберите превращение', [
-            { label: 'Оставить пешкой', value: 'p' },
-            { label: 'Конь', value: 'n' },
-            { label: 'Слон', value: 'b' }
-        ], (val) => {
-            if (val !== 'p') {
-                game.remove(square);
-                game.put({ type: val, color: piece.color }, square);
-                initBoard();
-                renderHighlights();
-                updateStatus();
+        // Вычисляем ownSquares ДО хода
+        const boardBefore = game.board();
+        const ownSquares = [];
+        for (let r = 0; r < 8; r++) {
+            for (let c = 0; c < 8; c++) {
+                const p = boardBefore[r][c];
+                if (p && p.color === piece.color) {
+                    ownSquares.push(String.fromCharCode('a'.charCodeAt(0) + c) + (8 - r));
+                }
             }
-            emitAbility({ type: 'pawn_change', square, pieceType: val });
-            showToast('Способность пешки активирована');
-        });
+        }
+
+        // Автоматическое превращение в слона (на месте)
+        game.remove(square);
+        game.put({ type: 'b', color: piece.color }, square);
+
+        const move = {
+            from: square, to: square, color: piece.color, piece: 'p', promotion: 'b',
+            flags: 'p', isAbility: true
+        };
+        historyMoves.push(move);
+        currentHistoryIndex = historyMoves.length - 1;
+
+        applyAppetiteForMove(move, game, ownSquares);
+        emitAbility({ type: 'pawn_change', square, pieceType: 'b' });
+
+        initBoard();
+        renderHighlights();
+        updateStatus();
+        updateHistoryUI();
+        showToast('Пешка превратилась в слона');
     } else if (piece.type === 'n') {
         activeAbility = { type: 'knight_teleport', square: square };
         showToast('Выберите пустую клетку для телепортации коня');
@@ -1259,7 +1299,8 @@ function handleAbilityTargetClick(square) {
 }
 
 function executeRookMulti(emit = true) {
-    const targets = activeAbility.targets;
+    if (!activeAbility) return;
+    const targets = [...activeAbility.targets];
     if (targets.length === 0) return;
 
     const from = activeAbility.square;
@@ -1269,25 +1310,19 @@ function executeRookMulti(emit = true) {
 
     if (emit) emitAbility({ type: 'rook_multi', square: from, targets });
 
-    // Сортируем цели по дистанции, чтобы съесть последнюю (самую дальнюю) ходом, а остальные — remove
-    // На самом деле в шахматах мы можем прыгнуть только если съедим последнюю.
-    // Но по условию "можно сьесть сразу несколько фигур на одной вертикали/диагонали".
-    // Я реализую это так: удаляем все промежуточные, и делаем move на последнюю.
+    // Сортируем по дистанции и берём последнюю
     targets.sort((a, b) => getChebyshevDist(from, a) - getChebyshevDist(from, b));
+    const lastTarget = targets[targets.length - 1];
+    const intermediates = targets.slice(0, -1);
 
-    const lastTarget = targets.pop();
-    for (const t of targets) {
-        // За каждое взятие — аппетит и мораль? 
-        // Упростим: просто удаляем фигуры.
+    // Удаляем промежуточные фигуры
+    for (const t of intermediates) {
         game.remove(t);
         delete appetiteMap[t];
         delete moraleMap[t];
     }
 
-    // Последнее взятие делаем через makeMove чтобы сработали все триггеры
-    activeAbility = null;
-
-    // Вычисляем ownSquares
+    // Вычисляем ownSquares ДО хода
     const boardBefore = game.board();
     const ownSquares = [];
     for (let r = 0; r < 8; r++) {
@@ -1299,11 +1334,46 @@ function executeRookMulti(emit = true) {
         }
     }
 
-    if (makeMove(from, lastTarget, 'q', false)) {
-        if (emit && isMultiplayer) socket.emit('make_move', { roomId: currentRoomId, move: historyMoves[historyMoves.length - 1] });
-    }
+    activeAbility = null;
 
-    showToast('Ладья совершила захват');
+    // Пытаемся сделать ход к последней цели
+    // Сначала удалим цель (чтобы chess.js не проверял легальность взятия если оно "странное")
+    const captured = game.get(lastTarget);
+    game.remove(lastTarget);
+
+    const move = game.move({ from, to: lastTarget, promotion: 'q' });
+    if (move) {
+        move.isAbility = true;
+        move.rookMultiTargets = intermediates;
+        if (captured) move.captured = captured.type;
+        historyMoves.push(move);
+        currentHistoryIndex = historyMoves.length - 1;
+        applyAppetiteForMove(move, game, ownSquares);
+        if (emit && isMultiplayer) socket.emit('make_move', { roomId: currentRoomId, move });
+        finishAbility('Ладья уничтожила цели');
+    } else {
+        // Fallback
+        appetiteMap[lastTarget] = appetiteMap[from] || 0;
+        moraleMap[lastTarget] = moraleMap[from] || 0;
+        if (immortalSquares[from]) immortalSquares[lastTarget] = immortalSquares[from];
+        game.remove(from);
+        game.put({ type: 'r', color }, lastTarget);
+
+        const fakeMove = {
+            from, to: lastTarget, color, piece: 'r', flags: 'c', captured: captured ? captured.type : 'p',
+            isAbility: true, rookMultiTargets: intermediates
+        };
+        historyMoves.push(fakeMove);
+        currentHistoryIndex = historyMoves.length - 1;
+
+        delete appetiteMap[from];
+        delete moraleMap[from];
+        delete immortalSquares[from];
+
+        applyAppetiteForMove(fakeMove, game, ownSquares);
+        if (emit && isMultiplayer) socket.emit('make_move', { roomId: currentRoomId, move: fakeMove });
+        finishAbility('Ладья уничтожила цели');
+    }
 }
 
 function finishAbility(msg) {
@@ -1351,7 +1421,7 @@ function executeXrayCapture(from, to, emit) {
     if (emit) emitAbility({ type: 'bishop_xray_action', from, to });
 
     const color = piece.color;
-    game.remove(to);
+    const captured = game.get(to);
 
     // Вычисляем ownSquares
     const boardBefore = game.board();
@@ -1365,14 +1435,42 @@ function executeXrayCapture(from, to, emit) {
         }
     }
 
+    // Принудительно очищаем клетку цели для шахматного движка
+    game.remove(to);
+
     const move = game.move({ from, to, promotion: 'q' });
     if (move) {
+        move.isAbility = true;
+        if (captured) move.captured = captured.type;
         historyMoves.push(move);
         currentHistoryIndex = historyMoves.length - 1;
         applyAppetiteForMove(move, game, ownSquares);
         xrayBishop = null;
         if (emit && isMultiplayer) socket.emit('make_move', { roomId: currentRoomId, move });
-        finishAbility('Рентген-взятие выполнено');
+        finishAbility('Слон совершил прыжок');
+    } else {
+        // Вручную если chess.js блокирует (например, фигуры на пути)
+        appetiteMap[to] = appetiteMap[from] || 0;
+        moraleMap[to] = moraleMap[from] || 0;
+        if (immortalSquares[from]) immortalSquares[to] = immortalSquares[from];
+        game.remove(from);
+        game.put({ type: 'b', color }, to);
+
+        const fakeMove = {
+            from, to, color, piece: 'b', flags: 'c', captured: captured ? captured.type : 'p',
+            isAbility: true
+        };
+        historyMoves.push(fakeMove);
+        currentHistoryIndex = historyMoves.length - 1;
+
+        delete appetiteMap[from];
+        delete moraleMap[from];
+        delete immortalSquares[from];
+
+        applyAppetiteForMove(fakeMove, game, ownSquares);
+        xrayBishop = null;
+        if (emit && isMultiplayer) socket.emit('make_move', { roomId: currentRoomId, move: fakeMove });
+        finishAbility('Слон совершил прыжок');
     }
 }
 
