@@ -283,11 +283,21 @@ function makeMove(from, to, promotion = 'q', emit = true) {
     // Проверка аппетита: если фигура сыта — взятие запрещено независимо от источника хода
     const allMoves = game.moves({ square: from, verbose: true });
     const allowedMoves = filterMovesByAppetite(allMoves);
-    const targetPiece = game.get(to);
-    if (targetPiece) {
-        // Это взятие — проверяем, есть ли этот ход в разрешённых
-        const isCapAllowed = allowedMoves.some(m => m.to === to);
-        if (!isCapAllowed) return false;
+    const isInAllowed = allowedMoves.some(m => m.to === to);
+    const isInAllLegal = allMoves.some(m => m.to === to);
+    if (isInAllLegal && !isInAllowed) return false;
+
+    // Вычисляем позиции своих фигур ДО хода (для декремента)
+    const movingColor = game.turn();
+    const boardBefore = game.board();
+    const ownSquares = [];
+    for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+            const p = boardBefore[r][c];
+            if (p && p.color === movingColor) {
+                ownSquares.push(String.fromCharCode('a'.charCodeAt(0) + c) + (8 - r));
+            }
+        }
     }
 
     let move = null;
@@ -300,7 +310,7 @@ function makeMove(from, to, promotion = 'q', emit = true) {
         currentHistoryIndex = historyMoves.length - 1;
 
         // Обновляем аппетит
-        applyAppetiteForMove(move, game);
+        applyAppetiteForMove(move, game, ownSquares);
         updatePieceInfoPanel();
 
         if (isMultiplayer && emit && socket) {
@@ -753,54 +763,48 @@ function filterMovesByAppetite(moves) {
         if (!move.captured) return true;
         const currentSatiety = appetiteMap[move.from] || 0;
         const maxSat = pieceMaxSatiety[move.piece];
-        const foodValue = pieceMaxSatiety[move.captured];
-        return currentSatiety + foodValue <= maxSat;
+        // Можно есть если сытость строго меньше максимума
+        return currentSatiety < maxSat;
     });
 }
 
-function applyAppetiteForMove(move, gameObj) {
+// ownPieceSquares — позиции своих фигур (снатчала хода), чтобы точно знать где декрементировать
+function applyAppetiteForMove(move, gameObj, ownPieceSquares) {
     const DECAY = 5;
-    const currentSatiety = appetiteMap[move.from] || 0;
 
+    // Шаг 1: декремент всех своих фигур (по позициям ДО хода)
+    for (const sq of ownPieceSquares) {
+        appetiteMap[sq] = Math.max(0, (appetiteMap[sq] || 0) - DECAY);
+    }
+
+    // Шаг 2: переносим данные фигуры с move.from на move.to (+ еда если взятие)
+    const currentSatiety = appetiteMap[move.from] || 0; // уже декрементировано
     delete appetiteMap[move.from];
 
     if (move.captured) {
         let capturedSq = move.to;
-        if (move.flags.includes('e')) capturedSq = move.to[0] + move.from[1];
+        if (move.flags.includes('e')) capturedSq = move.to[0] + move.from[1]; // взятие на проходе
         delete appetiteMap[capturedSq];
 
         const movingType = move.promotion || move.piece;
         const maxSat = pieceMaxSatiety[movingType];
         const foodValue = pieceMaxSatiety[move.captured];
-        appetiteMap[move.to] = Math.min(currentSatiety + foodValue, maxSat);
+        const rawNew = currentSatiety + foodValue;
+        // Переполнение: всё выше максимума делится на 2
+        appetiteMap[move.to] = rawNew <= maxSat
+            ? rawNew
+            : maxSat + Math.floor((rawNew - maxSat) / 2);
     } else {
         appetiteMap[move.to] = currentSatiety;
     }
 
-    if (move.promotion) {
-        const newMax = pieceMaxSatiety[move.promotion];
-        appetiteMap[move.to] = Math.min(appetiteMap[move.to] || 0, newMax);
-    }
-
-    // Рокировка — двигаем ладью в appetiteMap
+    // Рокировка — двигаем данные ладьи (ладья уже декрементирована в цикле выше)
     if (move.flags.includes('k') || move.flags.includes('q')) {
         const rookFrom = (move.flags.includes('k') ? 'h' : 'a') + move.from[1];
         const rookTo = (move.flags.includes('k') ? 'f' : 'd') + move.from[1];
-        appetiteMap[rookTo] = appetiteMap[rookFrom] || 0;
+        const rookSatiety = appetiteMap[rookFrom] || 0;
         delete appetiteMap[rookFrom];
-    }
-
-    // Убыль сытости у фигур СОПЕРНИКА (чтобы еда показывалась полностью в текущем ходе)
-    const opponentColor = move.color === 'w' ? 'b' : 'w';
-    const board = gameObj.board();
-    for (let r = 0; r < 8; r++) {
-        for (let c = 0; c < 8; c++) {
-            const p = board[r][c];
-            if (p && p.color === opponentColor) {
-                const sq = String.fromCharCode('a'.charCodeAt(0) + c) + (8 - r);
-                appetiteMap[sq] = Math.max(0, (appetiteMap[sq] || 0) - DECAY);
-            }
-        }
+        appetiteMap[rookTo] = rookSatiety;
     }
 }
 
@@ -819,8 +823,19 @@ function rebuildAppetiteMap() {
 
     for (let i = 0; i <= currentHistoryIndex; i++) {
         const move = historyMoves[i];
+        // Вычисляем позиции своих фигур ДО хода
+        const boardBefore = tempGame.board();
+        const ownSquares = [];
+        for (let r = 0; r < 8; r++) {
+            for (let c = 0; c < 8; c++) {
+                const p = boardBefore[r][c];
+                if (p && p.color === move.color) {
+                    ownSquares.push(String.fromCharCode('a'.charCodeAt(0) + c) + (8 - r));
+                }
+            }
+        }
         tempGame.move(move);
-        applyAppetiteForMove(move, tempGame);
+        applyAppetiteForMove(move, tempGame, ownSquares);
     }
 }
 
