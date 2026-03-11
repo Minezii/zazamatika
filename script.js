@@ -57,6 +57,20 @@ const pieceMaxSatiety = { p: 10, n: 30, b: 30, r: 50, q: 90, k: 100 };
 const pieceNames = { p: 'Пешка', n: 'Конь', b: 'Слон', r: 'Ладья', q: 'Ферзь', k: 'Король' };
 let appetiteMap = {}; // { square: currentSatiety }
 
+// --- БОЕВОЙ ДУХ ---
+let moraleMap = {}; // { square: currentMorale }
+let immortalSquares = {}; // { square: remainingMoves }
+let xrayBishop = null; // square of bishop with active x-ray
+let activeAbility = null; // { type, square, data }
+const pieceAbilities = {
+    p: 'Превращение в коня или слона на месте.',
+    n: 'Перемещение на любую свободную клетку доски.',
+    b: 'Сквозное взятие через фигуры на следующем ходу.',
+    r: 'Захват до 3 фигур по одной линии за один ход.',
+    q: 'Бессмертие на 3 следующих хода.',
+    k: 'Спавн любой фигуры на свободную клетку.'
+};
+
 function getSquareCoords(sq) {
     if (isBoardFlipped) {
         return {
@@ -236,10 +250,26 @@ function createPieceDOM(sq, color, type) {
 
 function renderHighlights() {
     Object.values(domSquares).forEach(s => {
-        s.classList.remove('selected', 'valid-move', 'valid-capture');
+        s.classList.remove('selected', 'valid-move', 'valid-capture', 'ability-target');
         const sq = s.dataset.square;
 
         if (selectedSquare === sq) s.classList.add('selected');
+
+        // Подсветка целей способности
+        if (activeAbility) {
+            let isTarget = false;
+            if (activeAbility.type === 'knight_teleport' || activeAbility.type === 'king_spawn') {
+                if (!game.get(sq)) isTarget = true;
+            } else if (activeAbility.type === 'rook_multi') {
+                const p = game.get(sq);
+                if (p && p.color !== game.turn()) {
+                    // Проверка что на одной линии с ладьей
+                    const lsq = activeAbility.square;
+                    if (lsq[0] === sq[0] || lsq[1] === sq[1]) isTarget = true;
+                }
+            }
+            if (isTarget) s.classList.add('ability-target');
+        }
 
         const move = validMoves.find(m => m.to === sq);
         if (move) {
@@ -249,26 +279,56 @@ function renderHighlights() {
                 s.classList.add('valid-move');
             }
         }
+
+        // Рентген слона
+        if (xrayBishop && selectedSquare === xrayBishop) {
+            // Здесь мы могли бы добавить кастомные хайлайты, 
+            // но проще добавить их в validMoves при клике.
+        }
     });
+
+    // Специальная подсветка бессмертия
+    for (const sq in domPieces) {
+        if (immortalSquares[sq]) domPieces[sq].classList.add('immortal');
+        else domPieces[sq].classList.remove('immortal');
+    }
 }
 
 function handleSquareClick(square) {
-    if (currentHistoryIndex < historyMoves.length - 1) return; // Блокировка хода в прошлом
+    if (currentHistoryIndex < historyMoves.length - 1) return;
 
-    // Показываем инфо о фигуре при клике на любую клетку
+    // Перехват клика для активной способности
+    if (activeAbility) {
+        handleAbilityTargetClick(square);
+        return;
+    }
+
+    // Показываем инфо о фигуре
     const clickedPiece = game.get(square);
     if (clickedPiece) showPieceInfo(square);
 
     if (selectedSquare) {
-        if (makeMove(selectedSquare, square, 'q')) return;
+        if (makeMove(selectedSquare, square, 'q')) {
+            selectedSquare = null;
+            validMoves = [];
+            renderHighlights();
+            return;
+        }
     }
 
     const piece = game.get(square);
     if (piece && piece.color === game.turn()) {
-        if (isMultiplayer && piece.color !== myColor) return; // Блокировка
+        if (isMultiplayer && piece.color !== myColor) return;
 
         selectedSquare = square;
-        validMoves = filterMovesByAppetite(game.moves({ square: square, verbose: true }));
+        let moves = game.moves({ square: square, verbose: true });
+
+        // Рентген слона
+        if (xrayBishop === square) {
+            moves = getXrayBishopMoves(square);
+        }
+
+        validMoves = filterMovesByAppetite(moves);
     } else {
         selectedSquare = null;
         validMoves = [];
@@ -278,14 +338,31 @@ function handleSquareClick(square) {
 }
 
 function makeMove(from, to, promotion = 'q', emit = true) {
-    if (currentHistoryIndex < historyMoves.length - 1) return false; // Защита от хода из прошлого
+    if (currentHistoryIndex < historyMoves.length - 1) return false;
 
-    // Проверка аппетита: если фигура сыта — взятие запрещено независимо от источника хода
-    const allMoves = game.moves({ square: from, verbose: true });
+    // Бессмертие: нельзя съесть фигуру на клетке 'to'
+    if (immortalSquares[to]) {
+        showToast('Эта фигура бессмертна!');
+        return false;
+    }
+
+    // Проверка аппетита + кастомные ходы (рентген)
+    let allMoves = game.moves({ square: from, verbose: true });
+    if (xrayBishop === from) allMoves = getXrayBishopMoves(from);
+
     const allowedMoves = filterMovesByAppetite(allMoves);
-    const isInAllowed = allowedMoves.some(m => m.to === to);
-    const isInAllLegal = allMoves.some(m => m.to === to);
-    if (isInAllLegal && !isInAllowed) return false;
+    const moveData = allowedMoves.find(m => m.to === to);
+
+    if (!moveData) {
+        // Если это рентген-взятие, которого нет в chess.js (с перепрыгиванием), 
+        // мы должны обработать его вручную
+        if (xrayBishop === from && allMoves.some(m => m.to === to)) {
+            // Ручное выполнение рентген-взятия
+            executeXrayCapture(from, to, emit);
+            return true;
+        }
+        return false;
+    }
 
     // Вычисляем позиции своих фигур ДО хода (для декремента)
     const movingColor = game.turn();
@@ -688,6 +765,7 @@ function resetGameData() {
 
     initBoard();
     initAppetiteMap();
+    initMoraleMap();
     clearPieceInfo();
     renderHighlights();
     updateStatus();
@@ -758,6 +836,54 @@ function initAppetiteMap() {
     }
 }
 
+function initMoraleMap() {
+    moraleMap = {};
+    immortalSquares = {};
+    xrayBishop = null;
+    activeAbility = null;
+    const board = game.board();
+    for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+            if (board[r][c]) {
+                const sq = String.fromCharCode('a'.charCodeAt(0) + c) + (8 - r);
+                moraleMap[sq] = 0;
+            }
+        }
+    }
+}
+
+function getChebyshevDist(sq1, sq2) {
+    const c1 = sq1.charCodeAt(0) - 'a'.charCodeAt(0);
+    const r1 = 8 - parseInt(sq1[1]);
+    const c2 = sq2.charCodeAt(0) - 'a'.charCodeAt(0);
+    const r2 = 8 - parseInt(sq2[1]);
+    return Math.max(Math.abs(c1 - c2), Math.abs(r1 - r2));
+}
+
+function applyMoraleAfterCapture(captureSq, capturingColor) {
+    const board = game.board();
+    for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+            const piece = board[r][c];
+            if (piece) {
+                const sq = String.fromCharCode('a'.charCodeAt(0) + c) + (8 - r);
+                const dist = getChebyshevDist(captureSq, sq);
+                let change = 0;
+
+                if (dist <= 1) {
+                    change = (piece.color === capturingColor) ? 5 : -5;
+                } else if (dist <= 2) {
+                    change = (piece.color === capturingColor) ? 2 : -2;
+                }
+
+                if (change !== 0) {
+                    moraleMap[sq] = Math.max(-10, Math.min(10, (moraleMap[sq] || 0) + change));
+                }
+            }
+        }
+    }
+}
+
 function filterMovesByAppetite(moves) {
     return moves.filter(move => {
         if (!move.captured) return true;
@@ -769,22 +895,36 @@ function filterMovesByAppetite(moves) {
 }
 
 // ownPieceSquares — позиции своих фигур (снатчала хода), чтобы точно знать где декрементировать
+// ownPieceSquares — позиции своих фигур (сначала хода), чтобы точно знать где декрементировать
 function applyAppetiteForMove(move, gameObj, ownPieceSquares) {
     const DECAY = 5;
 
     // Шаг 1: декремент всех своих фигур (по позициям ДО хода)
     for (const sq of ownPieceSquares) {
         appetiteMap[sq] = Math.max(0, (appetiteMap[sq] || 0) - DECAY);
+        // Бессмертие убывает за ход
+        if (immortalSquares[sq] > 0) {
+            immortalSquares[sq]--;
+            if (immortalSquares[sq] <= 0) delete immortalSquares[sq];
+        }
     }
 
-    // Шаг 2: переносим данные фигуры с move.from на move.to (+ еда если взятие)
-    const currentSatiety = appetiteMap[move.from] || 0; // уже декрементировано
+    // Шаг 2: сохраняем данные фигуры
+    const currentSatiety = appetiteMap[move.from] || 0;
+    const currentMorale = moraleMap[move.from] || 0;
+    const currentImmortal = immortalSquares[move.from];
+
+    // Удаляем старые привязки
     delete appetiteMap[move.from];
+    delete moraleMap[move.from];
+    delete immortalSquares[move.from];
 
     if (move.captured) {
         let capturedSq = move.to;
         if (move.flags.includes('e')) capturedSq = move.to[0] + move.from[1]; // взятие на проходе
         delete appetiteMap[capturedSq];
+        delete moraleMap[capturedSq];
+        delete immortalSquares[capturedSq];
 
         const movingType = move.promotion || move.piece;
         const maxSat = pieceMaxSatiety[movingType];
@@ -794,29 +934,49 @@ function applyAppetiteForMove(move, gameObj, ownPieceSquares) {
         appetiteMap[move.to] = rawNew <= maxSat
             ? rawNew
             : maxSat + Math.floor((rawNew - maxSat) / 2);
+
+        // Переносим остальные данные (мораль перенесем после обновления)
+        moraleMap[move.to] = currentMorale;
+        if (currentImmortal) immortalSquares[move.to] = currentImmortal;
+
+        // Применяем эффект боевого духа ко всем
+        applyMoraleAfterCapture(capturedSq, move.color);
     } else {
         appetiteMap[move.to] = currentSatiety;
+        moraleMap[move.to] = currentMorale;
+        if (currentImmortal) immortalSquares[move.to] = currentImmortal;
     }
 
-    // Рокировка — двигаем данные ладьи (ладья уже декрементирована в цикле выше)
+    // Рокировка — двигаем данные ладьи
     if (move.flags.includes('k') || move.flags.includes('q')) {
         const rookFrom = (move.flags.includes('k') ? 'h' : 'a') + move.from[1];
         const rookTo = (move.flags.includes('k') ? 'f' : 'd') + move.from[1];
-        const rookSatiety = appetiteMap[rookFrom] || 0;
+
+        appetiteMap[rookTo] = appetiteMap[rookFrom] || 0;
+        moraleMap[rookTo] = moraleMap[rookFrom] || 0;
+        if (immortalSquares[rookFrom]) immortalSquares[rookTo] = immortalSquares[rookFrom];
+
         delete appetiteMap[rookFrom];
-        appetiteMap[rookTo] = rookSatiety;
+        delete moraleMap[rookFrom];
+        delete immortalSquares[rookFrom];
     }
 }
 
 function rebuildAppetiteMap() {
     const tempGame = new Chess();
     appetiteMap = {};
+    moraleMap = {};
+    immortalSquares = {};
+    xrayBishop = null;
+    activeAbility = null;
+
     const initBoard = tempGame.board();
     for (let r = 0; r < 8; r++) {
         for (let c = 0; c < 8; c++) {
             if (initBoard[r][c]) {
                 const sq = String.fromCharCode('a'.charCodeAt(0) + c) + (8 - r);
                 appetiteMap[sq] = 0;
+                moraleMap[sq] = 0;
             }
         }
     }
@@ -851,19 +1011,54 @@ function showPieceInfo(square) {
     selectedInfoSquare = square;
     const satiety = appetiteMap[square] || 0;
     const maxSat = pieceMaxSatiety[piece.type];
-    const pct = maxSat > 0 ? (satiety / maxSat) * 100 : 0;
+    const satietyPct = maxSat > 0 ? (satiety / maxSat) * 100 : 0;
+
+    const morale = moraleMap[square] || 0;
+    const isImmortal = !!immortalSquares[square];
 
     document.getElementById('piece-info-img').src = pieceImages[piece.color][piece.type];
-    document.getElementById('piece-info-name').innerText =
-        pieceNames[piece.type] + (piece.color === 'w' ? ' (белая)' : ' (чёрная)');
+    let nameText = pieceNames[piece.type] + (piece.color === 'w' ? ' (белая)' : ' (чёрная)');
+    if (isImmortal) nameText += ' 🛡️ [БЕССМЕРТЕН]';
+    document.getElementById('piece-info-name').innerText = nameText;
 
-    const fill = document.getElementById('satiety-bar-fill');
-    fill.style.width = pct + '%';
-    if (pct >= 80) fill.style.background = '#ef4444'; // красный — почти полная
-    else if (pct >= 40) fill.style.background = '#eab308'; // жёлтый — средняя
-    else fill.style.background = '#22c55e'; // зелёный — голодная
-
+    // Сытость
+    const satietyFill = document.getElementById('satiety-bar-fill');
+    satietyFill.style.width = satietyPct + '%';
+    if (satietyPct >= 80) satietyFill.style.background = '#ef4444';
+    else if (satietyPct >= 40) satietyFill.style.background = '#eab308';
+    else satietyFill.style.background = '#22c55e';
     document.getElementById('satiety-value').innerText = `${satiety}/${maxSat}`;
+
+    // Боевой дух
+    const moraleNeg = document.getElementById('morale-bar-neg');
+    const moralePos = document.getElementById('morale-bar-pos');
+    const moraleVal = document.getElementById('morale-value');
+    if (morale < 0) {
+        moraleNeg.style.width = (Math.abs(morale) / 10 * 100) + '%';
+        moralePos.style.width = '0%';
+    } else {
+        moraleNeg.style.width = '0%';
+        moralePos.style.width = (morale / 10 * 100) + '%';
+    }
+    moraleVal.innerText = (morale >= 0 ? '+' : '') + morale;
+
+    // Способность
+    const abilityDesc = document.getElementById('ability-description');
+    const abilityBtn = document.getElementById('ability-btn');
+    abilityDesc.innerText = pieceAbilities[piece.type];
+
+    // Кнопка активации доступна только при достижении +10 морали
+    if (morale === 10) {
+        abilityBtn.style.display = 'block';
+        // Если это наш ход и наша фигура
+        if (game.turn() === piece.color && (!isMultiplayer || piece.color === myColor)) {
+            abilityBtn.disabled = false;
+        } else {
+            abilityBtn.disabled = true;
+        }
+    } else {
+        abilityBtn.style.display = 'none';
+    }
 
     emptyEl.style.display = 'none';
     contentEl.style.display = 'block';
@@ -886,6 +1081,321 @@ function clearPieceInfo() {
     const contentEl = document.getElementById('piece-info-content');
     if (emptyEl) emptyEl.style.display = 'flex';
     if (contentEl) contentEl.style.display = 'none';
+}
+
+// --- АППЕТИТ: ПЕРЕМЕННЫЕ УДАЛИТЬ ЛИШНЕЕ ЕСЛИ ЕСТЬ ---
+
+// --- БОЕВОЙ ДУХ: СПОСОБНОСТИ ---
+const abilityBtn = document.getElementById('ability-btn');
+const abilityModal = document.getElementById('ability-choice-modal');
+const abilityChoices = document.getElementById('ability-modal-choices');
+const abilityCancel = document.getElementById('ability-cancel-btn');
+
+abilityBtn.addEventListener('click', () => {
+    if (selectedInfoSquare) {
+        activateAbility(selectedInfoSquare);
+    }
+});
+
+abilityCancel.addEventListener('click', () => {
+    abilityModal.style.display = 'none';
+    activeAbility = null;
+});
+
+function activateAbility(square) {
+    const piece = game.get(square);
+    if (!piece || moraleMap[square] !== 10) return;
+
+    // Сбрасываем мораль
+    moraleMap[square] = 0;
+    updatePieceInfoPanel();
+
+    if (morale === 10) {
+        // Сбрасываем мораль локально
+        moraleMap[square] = 0;
+        updatePieceInfoPanel();
+
+        if (piece.type === 'p') {
+            showAbilityChoice('Выберите превращение', [
+                { label: 'Оставить пешкой', value: 'p' },
+                { label: 'Конь', value: 'n' },
+                { label: 'Слон', value: 'b' }
+            ], (val) => {
+                if (val !== 'p') {
+                    game.remove(square);
+                    game.put({ type: val, color: piece.color }, square);
+                    initBoard();
+                    renderHighlights();
+                    updateStatus();
+                }
+                emitAbility({ type: 'pawn_change', square, pieceType: val });
+                showToast('Способность пешки активирована');
+            });
+        } else if (piece.type === 'n') {
+            activeAbility = { type: 'knight_teleport', square: square };
+            showToast('Выберите пустую клетку для телепортации коня');
+            renderHighlights();
+        } else if (piece.type === 'b') {
+            xrayBishop = square;
+            emitAbility({ type: 'bishop_xray', square });
+            showToast('Слон получил сквозное взятие на 1 ход');
+            renderHighlights();
+        } else if (piece.type === 'r') {
+            activeAbility = { type: 'rook_multi', square: square, targets: [] };
+            showToast('Выберите до 3 фигур по линии для захвата');
+            renderHighlights();
+        } else if (piece.type === 'q') {
+            immortalSquares[square] = 3;
+            emitAbility({ type: 'queen_immortal', square });
+            showToast('Ферзь стал бессмертным на 3 хода');
+            updatePieceInfoPanel();
+            renderHighlights();
+        } else if (piece.type === 'k') {
+            showAbilityChoice('Выберите фигуру для спавна', [
+                { label: 'Ферзь', value: 'q' },
+                { label: 'Ладья', value: 'r' },
+                { label: 'Слон', value: 'b' },
+                { label: 'Конь', value: 'n' },
+                { label: 'Пешка', value: 'p' }
+            ], (val) => {
+                activeAbility = { type: 'king_spawn', square: square, pieceType: val };
+                showToast(`Выберите пустую клетку для спавна фигуры: ${val}`);
+                renderHighlights();
+            });
+        }
+    }
+}
+
+function emitAbility(data) {
+    if (isMultiplayer && currentRoomId && socket) {
+        data.roomId = currentRoomId;
+        socket.emit('use_ability', data);
+    }
+}
+
+function applyOpponentAbility(data) {
+    const { type, square, targets, pieceType, target } = data;
+    moraleMap[square] = 0; // Сброс морали у инициатора
+
+    if (type === 'pawn_change') {
+        const piece = game.get(square);
+        if (piece) {
+            game.remove(square);
+            game.put({ type: pieceType, color: piece.color }, square);
+        }
+    } else if (type === 'knight_teleport') {
+        const p = game.get(square);
+        if (p) {
+            game.remove(square);
+            game.put({ type: 'n', color: p.color }, target);
+            appetiteMap[target] = appetiteMap[square] || 0;
+            delete appetiteMap[square];
+            moraleMap[target] = 0;
+            delete moraleMap[square];
+        }
+    } else if (type === 'bishop_xray') {
+        xrayBishop = square;
+    } else if (type === 'rook_multi') {
+        activeAbility = { type: 'rook_multi', square, targets };
+        executeRookMulti(false);
+    } else if (type === 'queen_immortal') {
+        immortalSquares[square] = 3;
+    } else if (type === 'king_spawn') {
+        const p = game.get(square);
+        if (p) {
+            game.put({ type: pieceType, color: p.color }, target);
+            appetiteMap[target] = 0;
+            moraleMap[target] = 0;
+        }
+    } else if (type === 'bishop_xray_action') {
+        executeXrayCapture(data.from, data.to, false);
+    }
+
+    initBoard();
+    renderHighlights();
+    updateStatus();
+    updatePieceInfoPanel();
+}
+
+function handleAbilityTargetClick(square) {
+    if (!activeAbility) return;
+
+    if (activeAbility.type === 'knight_teleport') {
+        if (!game.get(square)) {
+            const from = activeAbility.square;
+            const p = game.get(from);
+            game.remove(from);
+            game.put({ type: 'n', color: p.color }, square);
+
+            // Синхронизируем состояние
+            appetiteMap[square] = appetiteMap[from] || 0;
+            delete appetiteMap[from];
+            moraleMap[square] = 0;
+            delete moraleMap[from];
+
+            emitAbility({ type: 'knight_teleport', square: from, target: square });
+            finishAbility('Конь телепортировался');
+        }
+    } else if (activeAbility.type === 'king_spawn') {
+        if (!game.get(square)) {
+            const from = activeAbility.square;
+            const p = game.get(from);
+            game.put({ type: activeAbility.pieceType, color: p.color }, square);
+            appetiteMap[square] = 0;
+            moraleMap[square] = 0;
+
+            emitAbility({ type: 'king_spawn', square: from, target: square, pieceType: activeAbility.pieceType });
+            finishAbility('Фигура призвана');
+        }
+    } else if (activeAbility.type === 'rook_multi') {
+        const p = game.get(square);
+        const lsq = activeAbility.square;
+        const piece = game.get(lsq);
+        if (p && p.color !== piece.color && (lsq[0] === square[0] || lsq[1] === square[1])) {
+            if (!activeAbility.targets.includes(square)) {
+                activeAbility.targets.push(square);
+                showToast(`Цель ${activeAbility.targets.length}/3 выбрана`);
+                if (activeAbility.targets.length === 3) executeRookMulti();
+                renderHighlights();
+            }
+        } else if (square === activeAbility.square && activeAbility.targets.length > 0) {
+            executeRookMulti();
+        }
+    }
+}
+
+function executeRookMulti(emit = true) {
+    const targets = activeAbility.targets;
+    if (targets.length === 0) return;
+
+    const from = activeAbility.square;
+    const piece = game.get(from);
+    if (!piece) return;
+    const color = piece.color;
+
+    if (emit) emitAbility({ type: 'rook_multi', square: from, targets });
+
+    // Сортируем цели по дистанции, чтобы съесть последнюю (самую дальнюю) ходом, а остальные — remove
+    // На самом деле в шахматах мы можем прыгнуть только если съедим последнюю.
+    // Но по условию "можно сьесть сразу несколько фигур на одной вертикали/диагонали".
+    // Я реализую это так: удаляем все промежуточные, и делаем move на последнюю.
+    targets.sort((a, b) => getChebyshevDist(from, a) - getChebyshevDist(from, b));
+
+    const lastTarget = targets.pop();
+    for (const t of targets) {
+        // За каждое взятие — аппетит и мораль? 
+        // Упростим: просто удаляем фигуры.
+        game.remove(t);
+        delete appetiteMap[t];
+        delete moraleMap[t];
+    }
+
+    // Последнее взятие делаем через makeMove чтобы сработали все триггеры
+    activeAbility = null;
+
+    // Вычисляем ownSquares
+    const boardBefore = game.board();
+    const ownSquares = [];
+    for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+            const p = boardBefore[r][c];
+            if (p && p.color === color) {
+                ownSquares.push(String.fromCharCode('a'.charCodeAt(0) + c) + (8 - r));
+            }
+        }
+    }
+
+    if (makeMove(from, lastTarget, 'q', false)) {
+        if (emit && isMultiplayer) socket.emit('make_move', { roomId: currentRoomId, move: historyMoves[historyMoves.length - 1] });
+    }
+
+    showToast('Ладья совершила захват');
+}
+
+function finishAbility(msg) {
+    activeAbility = null;
+    initBoard();
+    renderHighlights();
+    updateStatus();
+    updatePieceInfoPanel();
+    if (msg) showToast(msg);
+}
+
+function getXrayBishopMoves(square) {
+    const piece = game.get(square);
+    const moves = [];
+    const directions = [[1, 1], [1, -1], [-1, 1], [-1, -1]];
+    const startC = square.charCodeAt(0) - 'a'.charCodeAt(0);
+    const startR = 8 - parseInt(square[1]);
+
+    for (const [dr, dc] of directions) {
+        let r = startR + dr;
+        let c = startC + dc;
+        while (r >= 0 && r < 8 && c >= 0 && c < 8) {
+            const targetSq = String.fromCharCode('a'.charCodeAt(0) + c) + (8 - r);
+            const targetPiece = game.get(targetSq);
+
+            if (targetPiece) {
+                if (targetPiece.color !== piece.color) {
+                    moves.push({ from: square, to: targetSq, captured: targetPiece.type, verbose: true, flags: 'c' });
+                }
+                // В обычном режиме здесь break, но в рентгене идем дальше
+            } else {
+                moves.push({ from: square, to: targetSq, verbose: true, flags: 'n' });
+            }
+            r += dr;
+            c += dc;
+        }
+    }
+    return moves;
+}
+
+function executeXrayCapture(from, to, emit) {
+    const piece = game.get(from);
+    if (!piece) return;
+
+    if (emit) emitAbility({ type: 'bishop_xray_action', from, to });
+
+    const color = piece.color;
+    game.remove(to);
+
+    // Вычисляем ownSquares
+    const boardBefore = game.board();
+    const ownSquares = [];
+    for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+            const p = boardBefore[r][c];
+            if (p && p.color === color) {
+                ownSquares.push(String.fromCharCode('a'.charCodeAt(0) + c) + (8 - r));
+            }
+        }
+    }
+
+    const move = game.move({ from, to, promotion: 'q' });
+    if (move) {
+        historyMoves.push(move);
+        currentHistoryIndex = historyMoves.length - 1;
+        applyAppetiteForMove(move, game, ownSquares);
+        xrayBishop = null;
+        if (emit && isMultiplayer) socket.emit('make_move', { roomId: currentRoomId, move });
+        finishAbility('Рентген-взятие выполнено');
+    }
+}
+
+function showAbilityChoice(title, choices, callback) {
+    document.getElementById('ability-modal-title').innerText = title;
+    abilityChoices.innerHTML = '';
+    choices.forEach(c => {
+        const btn = document.createElement('button');
+        btn.className = 'ability-choice-btn';
+        btn.innerText = c.label;
+        btn.onclick = () => {
+            abilityModal.style.display = 'none';
+            callback(c.value);
+        };
+        abilityChoices.appendChild(btn);
+    });
+    abilityModal.style.display = 'flex';
 }
 
 // --- ПРОФИЛЬ ПОЛЬЗОВАТЕЛЯ ---
@@ -996,6 +1506,10 @@ function ensureSocketConnection(callback) {
     socket.on('opponent_move', (move) => {
         // Применяем ход от соперника (с флагом emit = false)
         makeMove(move.from, move.to, move.promotion, false);
+    });
+
+    socket.on('opponent_ability', (data) => {
+        applyOpponentAbility(data);
     });
 
     socket.on('undo_requested', () => {

@@ -116,6 +116,20 @@
                                 </div>
                                 <span class="satiety-value" id="satiety-value"></span>
                             </div>
+                            <div class="stat-row-full">
+                                <div class="stat-label">Боевой дух</div>
+                                <div class="morale-bar-wrap">
+                                    <div class="morale-bar-neg" id="morale-bar-neg"></div>
+                                    <div class="morale-bar-pos" id="morale-bar-pos"></div>
+                                </div>
+                                <span class="morale-value" id="morale-value">+0</span>
+                            </div>
+                            <div class="stat-row-full ability-row">
+                                <div class="stat-label">Способность</div>
+                                <div class="ability-description" id="ability-description">—</div>
+                                <button class="btn btn-ability" id="ability-btn" style="display:none;">⚡
+                                    Активировать</button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -238,6 +252,17 @@
                 <div class="modal-actions">
                     <button id="undo-accept-btn" class="btn btn-primary">Разрешить</button>
                     <button id="undo-reject-btn" class="btn btn-danger">Отказать</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Модал выбора действия способности -->
+        <div id="ability-choice-modal" class="modal">
+            <div class="modal-content card">
+                <h3 id="ability-modal-title">Выберите действие</h3>
+                <div id="ability-modal-choices" class="ability-choices"></div>
+                <div class="modal-actions" style="margin-top:1rem;">
+                    <button class="btn btn-secondary" id="ability-cancel-btn">Отмена</button>
                 </div>
             </div>
         </div>

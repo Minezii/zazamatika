@@ -1107,3 +1107,133 @@ header {
         font-size: 1.5rem;
     }
 }
+
+/* --- Шкала боевого духа --- */
+.morale-bar-wrap {
+    height: 8px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 99px;
+    overflow: visible;
+    position: relative;
+    width: 100%;
+}
+
+.morale-bar-wrap::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: -1px;
+    bottom: -1px;
+    width: 2px;
+    background: rgba(255, 255, 255, 0.3);
+    transform: translateX(-50%);
+    border-radius: 2px;
+}
+
+.morale-bar-neg {
+    position: absolute;
+    right: 50%;
+    top: 0;
+    bottom: 0;
+    background: #ef4444;
+    width: 0%;
+    border-radius: 99px 0 0 99px;
+    transition: width 0.4s ease;
+}
+
+.morale-bar-pos {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    background: #3b82f6;
+    width: 0%;
+    border-radius: 0 99px 99px 0;
+    transition: width 0.4s ease;
+}
+
+.morale-value {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    font-family: monospace;
+}
+
+/* --- Способность --- */
+.ability-row {
+    gap: 0.6rem !important;
+}
+
+.ability-description {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    line-height: 1.4;
+}
+
+.btn-ability {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.25), rgba(139, 92, 246, 0.25));
+    color: #a78bfa;
+    border: 1px solid rgba(139, 92, 246, 0.4);
+    width: 100%;
+    padding: 0.6rem 1rem;
+    font-size: 0.9rem;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-ability:hover {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.4), rgba(139, 92, 246, 0.4));
+    box-shadow: 0 0 12px rgba(139, 92, 246, 0.3);
+}
+
+/* Кнопки выбора в модале способности */
+.ability-choices {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-top: 1rem;
+}
+
+.ability-choice-btn {
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid var(--surface-border);
+    color: var(--text-primary);
+    padding: 0.75rem 1rem;
+    border-radius: 10px;
+    font-family: inherit;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-align: left;
+}
+
+.ability-choice-btn:hover {
+    background: rgba(139, 92, 246, 0.2);
+    border-color: rgba(139, 92, 246, 0.5);
+}
+
+/* Подсветка клеток для выбора цели способности */
+.square.ability-target::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: rgba(139, 92, 246, 0.35);
+    border: 2px solid rgba(139, 92, 246, 0.8);
+    z-index: 3;
+    animation: ability-pulse 1s infinite alternate;
+}
+
+@keyframes ability-pulse {
+    from {
+        opacity: 0.6;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+/* Бессмертный ферзь */
+.piece.immortal {
+    filter: drop-shadow(0 0 8px #eab308) drop-shadow(0 4px 4px rgba(0, 0, 0, 0.3));
+}

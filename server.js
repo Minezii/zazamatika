@@ -94,6 +94,11 @@ io.on('connection', (socket) => {
         socket.to(data.roomId).emit('opponent_move', data.move);
     });
 
+    socket.on('use_ability', (data) => {
+        // data: { roomId, type, square, ... }
+        socket.to(data.roomId).emit('opponent_ability', data);
+    });
+
     // Система отмены хода
     socket.on('request_undo', (roomId) => {
         socket.to(roomId).emit('undo_requested');
