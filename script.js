@@ -280,6 +280,16 @@ function handleSquareClick(square) {
 function makeMove(from, to, promotion = 'q', emit = true) {
     if (currentHistoryIndex < historyMoves.length - 1) return false; // Защита от хода из прошлого
 
+    // Проверка аппетита: если фигура сыта — взятие запрещено независимо от источника хода
+    const allMoves = game.moves({ square: from, verbose: true });
+    const allowedMoves = filterMovesByAppetite(allMoves);
+    const targetPiece = game.get(to);
+    if (targetPiece) {
+        // Это взятие — проверяем, есть ли этот ход в разрешённых
+        const isCapAllowed = allowedMoves.some(m => m.to === to);
+        if (!isCapAllowed) return false;
+    }
+
     let move = null;
     try {
         move = game.move({ from, to, promotion });
