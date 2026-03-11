@@ -866,7 +866,7 @@ function showPieceInfo(square) {
     document.getElementById('satiety-value').innerText = `${satiety}/${maxSat}`;
 
     emptyEl.style.display = 'none';
-    contentEl.style.display = 'flex';
+    contentEl.style.display = 'block';
 }
 
 function updatePieceInfoPanel() {

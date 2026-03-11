@@ -93,6 +93,34 @@
 
         <!-- Вкладка: Играть сейчас -->
         <div class="game-area" id="view-play">
+            <!-- Панель информации о фигуре -->
+            <div class="info-column">
+                <div class="card panel-card" id="piece-info-panel">
+                    <div class="panel-header">
+                        <h2>Фигура</h2>
+                    </div>
+                    <div id="piece-info-empty" class="piece-info-placeholder">
+                        <span>♟</span>
+                        <p>Нажмите на фигуру</p>
+                    </div>
+                    <div id="piece-info-content" class="piece-info-content-expanded" style="display:none;">
+                        <div class="piece-portrait-wrap">
+                            <img id="piece-info-img" class="piece-portrait-large" src="" alt="">
+                            <div id="piece-info-name" class="piece-info-name-large"></div>
+                        </div>
+                        <div class="piece-stats-list">
+                            <div class="stat-row-full">
+                                <div class="stat-label">Сытость</div>
+                                <div class="satiety-bar-wrap">
+                                    <div class="satiety-bar-fill" id="satiety-bar-fill"></div>
+                                </div>
+                                <span class="satiety-value" id="satiety-value"></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <div class="board-column">
                 <div class="player-info top">
                     <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Aneka&backgroundColor=ffdfbf"
@@ -132,27 +160,6 @@
                     </div>
                     <div class="panel-footer">
                         <button id="undo-btn" class="btn btn-danger" disabled>Отменить ход</button>
-                    </div>
-                </div>
-
-                <!-- Панель информации о фигуре -->
-                <div class="card piece-info-card" id="piece-info-panel">
-                    <div id="piece-info-empty" class="piece-info-placeholder">
-                        <span>♟</span>
-                        <p>Нажмите на фигуру</p>
-                    </div>
-                    <div id="piece-info-content" class="piece-info-content" style="display:none;">
-                        <img id="piece-info-img" class="piece-portrait" src="" alt="">
-                        <div class="piece-info-stats">
-                            <div id="piece-info-name" class="piece-info-name"></div>
-                            <div class="stat-row">
-                                <div class="stat-label">🍖 Сытость</div>
-                                <div class="satiety-bar-wrap">
-                                    <div class="satiety-bar-fill" id="satiety-bar-fill"></div>
-                                </div>
-                                <span class="satiety-value" id="satiety-value"></span>
-                            </div>
-                        </div>
                     </div>
                 </div>
             </div>
