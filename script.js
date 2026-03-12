@@ -655,7 +655,7 @@ function updateHistoryUI() {
         const wMove = historyMoves[i];
         const wPart = document.createElement('div');
         wPart.className = `move-part ${currentHistoryIndex === i ? 'active' : ''}`;
-        wPart.innerText = wMove.san;
+        wPart.innerText = wMove.isAbility ? (wMove.san || '⚡ Способность') : wMove.san;
         wPart.addEventListener('click', () => jumpToHistory(i));
         moveEl.appendChild(wPart);
 
@@ -664,7 +664,7 @@ function updateHistoryUI() {
             const bMove = historyMoves[i + 1];
             const bPart = document.createElement('div');
             bPart.className = `move-part ${currentHistoryIndex === i + 1 ? 'active' : ''}`;
-            bPart.innerText = bMove.san;
+            bPart.innerText = bMove.isAbility ? (bMove.san || '⚡ Способность') : bMove.san;
             bPart.addEventListener('click', () => jumpToHistory(i + 1));
             moveEl.appendChild(bPart);
         }
@@ -1029,6 +1029,10 @@ function rebuildAppetiteMap() {
                     tempGame.remove(t);
                 }
             }
+            if (move.isSelfDestruct) {
+                tempGame.remove(move.from);
+                if (move.collateralTarget) tempGame.remove(move.collateralTarget);
+            }
             toggleTurn(tempGame);
         } else {
             tempGame.move(move);
@@ -1089,7 +1093,12 @@ function showPieceInfo(square) {
     // Способность
     const abilityDesc = document.getElementById('ability-description');
     const abilityBtn = document.getElementById('ability-btn');
-    abilityDesc.innerText = pieceAbilities[piece.type];
+
+    if (morale === -10) {
+        abilityDesc.innerText = '💥 Самоуничтожение: удаляет фигуру. 50% шанс взорвать случайную вражескую фигуру рядом.';
+    } else {
+        abilityDesc.innerText = pieceAbilities[piece.type];
+    }
 
     // Кнопка активации доступна только при достижении +10 морали
     if (morale === 10) {
@@ -1163,7 +1172,27 @@ function selfDestruct(square, emit = true) {
     const piece = game.get(square);
     if (!piece) return;
 
-    if (emit) emitAbility({ type: 'self_destruct', square });
+    let collateralTarget = null;
+    if (emit && Math.random() < 0.5) {
+        const neighbors = [];
+        const r = 8 - parseInt(square[1]);
+        const c = square.charCodeAt(0) - 'a'.charCodeAt(0);
+        for (let dr = -1; dr <= 1; dr++) {
+            for (let dc = -1; dc <= 1; dc++) {
+                if (dr === 0 && dc === 0) continue;
+                const nr = r + dr, nc = c + dc;
+                if (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
+                    const nsq = String.fromCharCode('a'.charCodeAt(0) + nc) + (8 - nr);
+                    const targetPiece = game.get(nsq);
+                    if (targetPiece && targetPiece.color !== piece.color) neighbors.push(nsq);
+                }
+            }
+        }
+        if (neighbors.length > 0) collateralTarget = neighbors[Math.floor(Math.random() * neighbors.length)];
+    }
+
+    if (emit) emitAbility({ type: 'self_destruct', square, collateralTarget });
+    else collateralTarget = data?.collateralTarget;
 
     showToast(`${pieceNames[piece.type]} совершил(а) самоуничтожение`);
 
@@ -1175,12 +1204,24 @@ function selfDestruct(square, emit = true) {
     delete moraleMap[square];
     delete immortalSquares[square];
 
+    if (collateralTarget) {
+        const victim = game.get(collateralTarget);
+        if (victim) {
+            game.remove(collateralTarget);
+            delete appetiteMap[collateralTarget];
+            delete moraleMap[collateralTarget];
+            delete immortalSquares[collateralTarget];
+        }
+    }
+
     toggleTurn(game);
 
     // Записываем в историю
     const fakeMove = {
         from: square, to: square, color: piece.color, piece: piece.type,
-        flags: 'n', isAbility: true, isSelfDestruct: true
+        flags: 'n', isAbility: true, isSelfDestruct: true,
+        collateralTarget,
+        san: `💥 ${piece.type.toUpperCase()}-Boom`
     };
     historyMoves.push(fakeMove);
     currentHistoryIndex = historyMoves.length - 1;
@@ -1218,7 +1259,8 @@ function activateAbility(square) {
 
         const move = {
             from: square, to: square, color: piece.color, piece: 'p', promotion: 'b',
-            flags: 'p', isAbility: true
+            flags: 'p', isAbility: true,
+            san: '⚡ Pawn→B'
         };
         historyMoves.push(move);
         currentHistoryIndex = historyMoves.length - 1;
@@ -1313,7 +1355,7 @@ function applyOpponentAbility(data) {
     } else if (type === 'bishop_xray_action') {
         executeXrayCapture(data.from, data.to, false);
     } else if (type === 'self_destruct') {
-        selfDestruct(square, false);
+        selfDestruct(square, false, data);
     }
 
     initBoard();
@@ -1355,7 +1397,8 @@ function handleAbilityTargetClick(square) {
             // Записываем в историю
             const moveData = {
                 from: from, to: square, color: p.color, piece: 'n',
-                flags: 'n', isAbility: true
+                flags: 'n', isAbility: true,
+                san: '⚡ N-Jump'
             };
             historyMoves.push(moveData);
             currentHistoryIndex = historyMoves.length - 1;
@@ -1389,7 +1432,8 @@ function handleAbilityTargetClick(square) {
             // Записываем в историю
             const move = {
                 from: square, to: square, color: p.color, piece: activeAbility.pieceType,
-                flags: 'n', isAbility: true
+                flags: 'n', isAbility: true,
+                san: `⚡ Spawn-${activeAbility.pieceType.toUpperCase()}`
             };
             historyMoves.push(move);
             currentHistoryIndex = historyMoves.length - 1;
@@ -1461,6 +1505,7 @@ function executeRookMulti(emit = true) {
     const move = game.move({ from, to: lastTarget, promotion: 'q' });
     if (move) {
         move.isAbility = true;
+        move.san = '⚡ Rook-Multi';
         move.rookMultiTargets = intermediates;
         if (captured) move.captured = captured.type;
         historyMoves.push(move);
@@ -1478,7 +1523,7 @@ function executeRookMulti(emit = true) {
 
         const fakeMove = {
             from, to: lastTarget, color, piece: 'r', flags: 'c', captured: captured ? captured.type : 'p',
-            isAbility: true, rookMultiTargets: intermediates
+            isAbility: true, san: '⚡ Rook-Multi', rookMultiTargets: intermediates
         };
         historyMoves.push(fakeMove);
         currentHistoryIndex = historyMoves.length - 1;
@@ -1558,6 +1603,7 @@ function executeXrayCapture(from, to, emit) {
     const move = game.move({ from, to, promotion: 'q' });
     if (move) {
         move.isAbility = true;
+        move.san = '⚡ Bishop-XRay';
         if (captured) move.captured = captured.type;
         historyMoves.push(move);
         currentHistoryIndex = historyMoves.length - 1;
@@ -1575,7 +1621,7 @@ function executeXrayCapture(from, to, emit) {
 
         const fakeMove = {
             from, to, color, piece: 'b', flags: 'c', captured: captured ? captured.type : 'p',
-            isAbility: true
+            isAbility: true, san: '⚡ Bishop-XRay'
         };
         historyMoves.push(fakeMove);
         currentHistoryIndex = historyMoves.length - 1;
