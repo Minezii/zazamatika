@@ -68,7 +68,7 @@ const pieceAbilities = {
     b: 'Сквозное взятие через фигуры на следующем ходу.',
     r: 'Захват до 3 фигур по одной линии за один ход.',
     q: 'Бессмертие на 3 следующих хода.',
-    k: 'Спавн любой фигуры на свободную клетку.'
+    k: 'Гнев Монарха: Призыв верного Ферзя на любое свободное поле.'
 };
 
 function getSquareCoords(sq) {
@@ -1294,17 +1294,9 @@ function activateAbility(square) {
         updatePieceInfoPanel();
         renderHighlights();
     } else if (piece.type === 'k') {
-        showAbilityChoice('Выберите фигуру для спавна', [
-            { label: 'Ферзь', value: 'q' },
-            { label: 'Ладья', value: 'r' },
-            { label: 'Слон', value: 'b' },
-            { label: 'Конь', value: 'n' },
-            { label: 'Пешка', value: 'p' }
-        ], (val) => {
-            activeAbility = { type: 'king_spawn', square: square, pieceType: val };
-            showToast(`Выберите пустую клетку для спавна фигуры`);
-            renderHighlights();
-        });
+        activeAbility = { type: 'king_spawn', square: square, pieceType: 'q' };
+        showToast(`Выберите пустую клетку для спавна ферзя`);
+        renderHighlights();
     }
 }
 

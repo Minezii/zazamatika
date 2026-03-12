@@ -484,7 +484,8 @@ header {
 
     .info-column {
         width: 100%;
-        max-height: none;
+        max-height: 400px;
+        overflow-y: auto;
         order: 3;
     }
 
@@ -1083,7 +1084,7 @@ header {
 
 @media (max-width: 480px) {
     .info-column {
-        max-height: 180px;
+        max-height: 350px;
     }
 
     .piece-portrait-large {
