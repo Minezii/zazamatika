@@ -1631,6 +1631,7 @@ function executeXrayCapture(from, to, emit) {
         delete immortalSquares[from];
 
         applyAppetiteForMove(fakeMove, game, ownSquares);
+        toggleTurn(game);
         xrayBishop = null;
         if (emit && isMultiplayer) socket.emit('make_move', { roomId: currentRoomId, move: fakeMove });
         finishAbility('Слон совершил прыжок');
