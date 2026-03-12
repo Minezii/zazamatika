@@ -63,7 +63,7 @@ let immortalSquares = {}; // { square: remainingMoves }
 let xrayBishop = null; // square of bishop with active x-ray
 let activeAbility = null; // { type, square, data }
 const pieceAbilities = {
-    p: 'Превращение в коня или слона на месте.',
+    p: 'Мгновенное превращение в слона.',
     n: 'Перемещение на любую свободную клетку доски.',
     b: 'Сквозное взятие через фигуры на следующем ходу.',
     r: 'Захват до 3 фигур по одной линии за один ход.',
@@ -177,6 +177,22 @@ function initBoard() {
 
     initPieces();
 }
+
+function toggleTurn(gameObj) {
+    const tokens = gameObj.fen().split(' ');
+    tokens[1] = tokens[1] === 'w' ? 'b' : 'w';
+    gameObj.load(tokens.join(' '));
+}
+
+// Привязываем кнопку самоуничтожения
+setTimeout(() => {
+    const dBtn = document.getElementById('destruct-btn');
+    if (dBtn) {
+        dBtn.addEventListener('click', () => {
+            if (selectedInfoSquare) selfDestruct(selectedInfoSquare);
+        });
+    }
+}, 100);
 
 function getSquareFromEvent(e) {
     const el = e.target.closest('[data-square]');
@@ -340,10 +356,13 @@ function handleSquareClick(square) {
 function makeMove(from, to, promotion = 'q', emit = true) {
     if (currentHistoryIndex < historyMoves.length - 1) return false;
 
-    // Бессмертие: нельзя съесть фигуру на клетке 'to'
+    // Бессмертие: только Король может съесть бессмертную фигуру
     if (immortalSquares[to]) {
-        showToast('Эта фигура бессмертна!');
-        return false;
+        const piece = game.get(from);
+        if (piece && piece.type !== 'k') {
+            showToast('Эта фигура бессмертна (ее может съесть только Король)!');
+            return false;
+        }
     }
 
     // Проверка аппетита + кастомные ходы (рентген)
@@ -1010,6 +1029,7 @@ function rebuildAppetiteMap() {
                     tempGame.remove(t);
                 }
             }
+            toggleTurn(tempGame);
         } else {
             tempGame.move(move);
         }
@@ -1084,6 +1104,19 @@ function showPieceInfo(square) {
         abilityBtn.style.display = 'none';
     }
 
+    // Кнопка самоуничтожения доступна при -10 морали
+    const destructBtn = document.getElementById('destruct-btn');
+    if (morale === -10) {
+        destructBtn.style.display = 'block';
+        if (game.turn() === piece.color && (!isMultiplayer || piece.color === myColor)) {
+            destructBtn.disabled = false;
+        } else {
+            destructBtn.disabled = true;
+        }
+    } else {
+        destructBtn.style.display = 'none';
+    }
+
     emptyEl.style.display = 'none';
     contentEl.style.display = 'block';
 }
@@ -1126,6 +1159,38 @@ abilityCancel.addEventListener('click', () => {
     activeAbility = null;
 });
 
+function selfDestruct(square, emit = true) {
+    const piece = game.get(square);
+    if (!piece) return;
+
+    if (emit) emitAbility({ type: 'self_destruct', square });
+
+    showToast(`${pieceNames[piece.type]} совершил(а) самоуничтожение`);
+
+    // Эффект морали на окружающих (как при захвате врагом)
+    applyMoraleAfterCapture(square, piece.color === 'w' ? 'b' : 'w');
+
+    game.remove(square);
+    delete appetiteMap[square];
+    delete moraleMap[square];
+    delete immortalSquares[square];
+
+    toggleTurn(game);
+
+    // Записываем в историю
+    const fakeMove = {
+        from: square, to: square, color: piece.color, piece: piece.type,
+        flags: 'n', isAbility: true, isSelfDestruct: true
+    };
+    historyMoves.push(fakeMove);
+    currentHistoryIndex = historyMoves.length - 1;
+
+    initBoard();
+    renderHighlights();
+    updateStatus();
+    updateHistoryUI();
+    updatePieceInfoPanel();
+}
 function activateAbility(square) {
     const piece = game.get(square);
     if (!piece || moraleMap[square] !== 10) return;
@@ -1159,6 +1224,7 @@ function activateAbility(square) {
         currentHistoryIndex = historyMoves.length - 1;
 
         applyAppetiteForMove(move, game, ownSquares);
+        toggleTurn(game);
         emitAbility({ type: 'pawn_change', square, pieceType: 'b' });
 
         initBoard();
@@ -1216,6 +1282,7 @@ function applyOpponentAbility(data) {
         if (piece) {
             game.remove(square);
             game.put({ type: pieceType, color: piece.color }, square);
+            toggleTurn(game);
         }
     } else if (type === 'knight_teleport') {
         const p = game.get(square);
@@ -1226,6 +1293,7 @@ function applyOpponentAbility(data) {
             delete appetiteMap[square];
             moraleMap[target] = 0;
             delete moraleMap[square];
+            toggleTurn(game);
         }
     } else if (type === 'bishop_xray') {
         xrayBishop = square;
@@ -1240,9 +1308,12 @@ function applyOpponentAbility(data) {
             game.put({ type: pieceType, color: p.color }, target);
             appetiteMap[target] = 0;
             moraleMap[target] = 0;
+            toggleTurn(game);
         }
     } else if (type === 'bishop_xray_action') {
         executeXrayCapture(data.from, data.to, false);
+    } else if (type === 'self_destruct') {
+        selfDestruct(square, false);
     }
 
     initBoard();
@@ -1268,6 +1339,29 @@ function handleAbilityTargetClick(square) {
             delete moraleMap[from];
 
             emitAbility({ type: 'knight_teleport', square: from, target: square });
+
+            // Вычисляем ownSquares ДО хода
+            const boardBefore = game.board();
+            const ownSquares = [];
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    const piece = boardBefore[r][c];
+                    if (piece && piece.color === p.color) {
+                        ownSquares.push(String.fromCharCode('a'.charCodeAt(0) + c) + (8 - r));
+                    }
+                }
+            }
+
+            // Записываем в историю
+            const moveData = {
+                from: from, to: square, color: p.color, piece: 'n',
+                flags: 'n', isAbility: true
+            };
+            historyMoves.push(moveData);
+            currentHistoryIndex = historyMoves.length - 1;
+
+            applyAppetiteForMove(moveData, game, ownSquares);
+            toggleTurn(game);
             finishAbility('Конь телепортировался');
         }
     } else if (activeAbility.type === 'king_spawn') {
@@ -1279,6 +1373,29 @@ function handleAbilityTargetClick(square) {
             moraleMap[square] = 0;
 
             emitAbility({ type: 'king_spawn', square: from, target: square, pieceType: activeAbility.pieceType });
+
+            // Вычисляем ownSquares ДО хода
+            const boardBefore = game.board();
+            const ownSquares = [];
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    const piece = boardBefore[r][c];
+                    if (piece && piece.color === p.color) {
+                        ownSquares.push(String.fromCharCode('a'.charCodeAt(0) + c) + (8 - r));
+                    }
+                }
+            }
+
+            // Записываем в историю
+            const move = {
+                from: square, to: square, color: p.color, piece: activeAbility.pieceType,
+                flags: 'n', isAbility: true
+            };
+            historyMoves.push(move);
+            currentHistoryIndex = historyMoves.length - 1;
+
+            applyAppetiteForMove(move, game, ownSquares);
+            toggleTurn(game);
             finishAbility('Фигура призвана');
         }
     } else if (activeAbility.type === 'rook_multi') {
