@@ -306,52 +306,54 @@ function renderHighlights() {
     // Специальная подсветка бессмертия
     for (const sq in domPieces) {
         if (immortalSquares[sq]) domPieces[sq].classList.add('immortal');
-        else domPieces[sq].classList.remove('immortal');
     }
 }
 
+function handleSquareClick(square) {
+    console.log(`[CLIENT] handleSquareClick clicked: ${square}`);
+    if (currentHistoryIndex < historyMoves.length - 1) return;
 
-// Перехват клика для активной способности
-if (activeAbility) {
-    handleAbilityTargetClick(square);
-    return;
-}
-
-// Показываем инфо о фигуре
-const clickedPiece = game.get(square);
-if (clickedPiece) showPieceInfo(square);
-
-if (selectedSquare) {
-    console.log(`[CLIENT] selectedSquare: ${selectedSquare}, target: ${square}`);
-    if (makeMove(selectedSquare, square, 'q')) {
-        selectedSquare = null;
-        validMoves = [];
-        renderHighlights();
+    // Перехват клика для активной способности
+    if (activeAbility) {
+        handleAbilityTargetClick(square);
         return;
     }
-    console.log(`[CLIENT] makeMove returned false for ${selectedSquare} -> ${square}`);
-}
 
-const piece = game.get(square);
-if (piece && piece.color === game.turn()) {
-    if (isMultiplayer && piece.color !== myColor) return;
+    // Показываем инфо о фигуре
+    const clickedPiece = game.get(square);
+    if (clickedPiece) showPieceInfo(square);
 
-    selectedSquare = square;
-    let moves = game.moves({ square: square, verbose: true });
-    console.log(`[CLIENT] moves found for ${square}: ${moves.length}`);
-
-    // Рентген слона
-    if (xrayBishop === square) {
-        moves = getXrayBishopMoves(square);
+    if (selectedSquare) {
+        console.log(`[CLIENT] selectedSquare: ${selectedSquare}, target: ${square}`);
+        if (makeMove(selectedSquare, square, 'q')) {
+            selectedSquare = null;
+            validMoves = [];
+            renderHighlights();
+            return;
+        }
+        console.log(`[CLIENT] makeMove returned false for ${selectedSquare} -> ${square}`);
     }
 
-    validMoves = filterMovesByAppetite(moves);
-} else {
-    selectedSquare = null;
-    validMoves = [];
-}
+    const piece = game.get(square);
+    if (piece && piece.color === game.turn()) {
+        if (isMultiplayer && piece.color !== myColor) return;
 
-renderHighlights();
+        selectedSquare = square;
+        let moves = game.moves({ square: square, verbose: true });
+        console.log(`[CLIENT] moves found for ${square}: ${moves.length}`);
+
+        // Рентген слона
+        if (xrayBishop === square) {
+            moves = getXrayBishopMoves(square);
+        }
+
+        validMoves = filterMovesByAppetite(moves);
+    } else {
+        selectedSquare = null;
+        validMoves = [];
+    }
+
+    renderHighlights();
 }
 
 function makeMove(from, to, promotion = 'q', emit = true) {
