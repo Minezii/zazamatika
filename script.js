@@ -1,3 +1,8 @@
+console.log('[DEBUG] script.js loading...');
+window.addEventListener('click', (e) => {
+    console.log('[DEBUG] GLOBAL CLICK target:', e.target, 'classes:', e.target.className, 'id:', e.target.id);
+}, true);
+
 const pieceImages = {
     'w': {
         'p': 'https://images.chesscomfiles.com/chess-themes/pieces/neo/150/wp.png',
@@ -16,6 +21,7 @@ const pieceImages = {
         'k': 'https://images.chesscomfiles.com/chess-themes/pieces/neo/150/bk.png'
     }
 };
+
 
 let game = new Chess();
 let selectedSquare = null;
