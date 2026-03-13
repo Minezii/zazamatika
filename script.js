@@ -171,97 +171,13 @@ function initBoard() {
     });
 
     boardElement.addEventListener('click', (e) => {
+        console.log('[CLIENT] boardElement raw click', e.target);
         const sq = getSquareFromEvent(e);
+        console.log(`[CLIENT] boardElement square detected: ${sq}`);
         if (sq) handleSquareClick(sq);
     });
 
     initPieces();
-}
-
-function toggleTurn(gameObj) {
-    const tokens = gameObj.fen().split(' ');
-    tokens[1] = tokens[1] === 'w' ? 'b' : 'w';
-    gameObj.load(tokens.join(' '));
-}
-
-// Привязываем кнопку самоуничтожения
-setTimeout(() => {
-    const dBtn = document.getElementById('destruct-btn');
-    if (dBtn) {
-        dBtn.addEventListener('click', () => {
-            if (selectedInfoSquare) selfDestruct(selectedInfoSquare);
-        });
-    }
-}, 100);
-
-function getSquareFromEvent(e) {
-    const el = e.target.closest('[data-square]');
-    return el ? el.dataset.square : null;
-}
-
-function initPieces() {
-    // Удаляем старые фигуры при новой игре
-    Object.values(domPieces).forEach(img => img.remove());
-    domPieces = {};
-
-    const board = game.board();
-    for (let r = 0; r < 8; r++) {
-        for (let c = 0; c < 8; c++) {
-            const sq = String.fromCharCode('a'.charCodeAt(0) + c) + (8 - r);
-            const p = board[r][c];
-            if (p) createPieceDOM(sq, p.color, p.type);
-        }
-    }
-}
-
-function createPieceDOM(sq, color, type) {
-    const img = document.createElement('img');
-    img.src = pieceImages[color][type];
-    img.className = 'piece';
-    img.draggable = true;
-    img.dataset.square = sq;
-
-    // Абсолютное позиционирование для CSS transition
-    const coords = getSquareCoords(sq);
-    img.style.top = `${coords.r * 12.5}%`;
-    img.style.left = `${coords.c * 12.5}%`;
-
-    img.addEventListener('dragstart', (e) => {
-        if (currentHistoryIndex < historyMoves.length - 1) {
-            e.preventDefault();
-            return;
-        }
-
-        const pieceSq = img.dataset.square;
-        const p = game.get(pieceSq);
-
-        if (!p || p.color !== game.turn()) {
-            e.preventDefault();
-            return;
-        }
-
-        // Блокировка в мультиплеере
-        if (isMultiplayer && p.color !== myColor) {
-            e.preventDefault();
-            return;
-        }
-
-        selectedSquare = pieceSq;
-        validMoves = filterMovesByAppetite(game.moves({ square: pieceSq, verbose: true }));
-        renderHighlights();
-
-        e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('text/plain', pieceSq);
-
-        setTimeout(() => img.classList.add('dragging'), 0);
-    });
-
-    img.addEventListener('dragend', () => {
-        img.classList.remove('dragging');
-    });
-
-    boardElement.appendChild(img);
-    domPieces[sq] = img;
 }
 
 function renderHighlights() {
