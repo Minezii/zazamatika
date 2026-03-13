@@ -180,6 +180,67 @@ function initBoard() {
     initPieces();
 }
 
+function getSquareFromEvent(e) {
+    const el = e.target.closest('[data-square]');
+    return el ? el.dataset.square : null;
+}
+
+function initPieces() {
+    console.log('[CLIENT] initPieces starting');
+    Object.values(domPieces).forEach(img => img.remove());
+    domPieces = {};
+
+    const board = game.board();
+    for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+            const sq = String.fromCharCode('a'.charCodeAt(0) + c) + (8 - r);
+            const p = board[r][c];
+            if (p) createPieceDOM(sq, p.color, p.type);
+        }
+    }
+    console.log('[CLIENT] initPieces finished');
+}
+
+function createPieceDOM(sq, color, type) {
+    const img = document.createElement('img');
+    img.src = pieceImages[color][type];
+    img.className = 'piece';
+    img.draggable = true;
+    img.dataset.square = sq;
+
+    const coords = getSquareCoords(sq);
+    img.style.top = coords.r * 12.5 + '%';
+    img.style.left = coords.c * 12.5 + '%';
+
+    img.addEventListener('dragstart', (e) => {
+        if (currentHistoryIndex < historyMoves.length - 1) {
+            e.preventDefault();
+            return;
+        }
+        const pSq = img.dataset.square;
+        const p = game.get(pSq);
+        if (!p || p.color !== game.turn()) {
+            e.preventDefault();
+            return;
+        }
+        if (isMultiplayer && p.color !== myColor) {
+            e.preventDefault();
+            return;
+        }
+
+        selectedSquare = pSq;
+        validMoves = filterMovesByAppetite(game.moves({ square: pSq, verbose: true }));
+        renderHighlights();
+        e.dataTransfer.setData('text/plain', pSq);
+        setTimeout(() => img.classList.add('dragging'), 0);
+    });
+
+    img.addEventListener('dragend', () => img.classList.remove('dragging'));
+
+    boardElement.appendChild(img);
+    domPieces[sq] = img;
+}
+
 function renderHighlights() {
     Object.values(domSquares).forEach(s => {
         s.classList.remove('selected', 'valid-move', 'valid-capture', 'ability-target');
