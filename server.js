@@ -2,6 +2,20 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
+const fs = require('fs');
+
+const logFile = path.join(__dirname, 'debug.log');
+
+function logToFile(msg) {
+    const timestamp = new Date().toISOString();
+    try {
+        fs.appendFileSync(logFile, `[${timestamp}] ${msg}\n`);
+    } catch (e) {
+        console.error('Logging failed:', e);
+    }
+    console.log(`[${timestamp}] ${msg}`);
+}
+
 
 const app = express();
 const server = http.createServer(app);
@@ -21,7 +35,7 @@ app.use(express.static(__dirname));
 const rooms = {};
 
 io.on('connection', (socket) => {
-    console.log('User connected:', socket.id);
+    logToFile(`User connected: ${socket.id}`);
 
     // Создание комнаты
     socket.on('create_room', (data) => {
@@ -110,6 +124,10 @@ io.on('connection', (socket) => {
 
     socket.on('reject_undo', (roomId) => {
         socket.to(roomId).emit('undo_rejected');
+    });
+
+    socket.on('log', (msg) => {
+        logToFile(`[CLIENT ${socket.id}] ${msg}`);
     });
 
     // Отключение

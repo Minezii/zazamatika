@@ -8,7 +8,17 @@ class Chess {
         this._history = [];
         this._header = {};
         this._comments = {};
+        this._debug = true;
         this.load(fen || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1');
+    }
+
+    _log(msg) {
+        if (!this._debug) return;
+        if (typeof window !== 'undefined' && window.socket) {
+            window.socket.emit('log', `[ENGINE] ${msg}`);
+        } else {
+            console.log(`[ENGINE] ${msg}`);
+        }
     }
 
     _generateSquares() {
@@ -125,9 +135,18 @@ class Chess {
         const verbose = options.verbose;
         let moves = [];
 
+        this._log(`Generating moves for square: ${square || 'all'}`);
+
         if (square) {
             const piece = this.get(square);
-            if (!piece || piece.color !== this._turn) return [];
+            if (!piece) {
+                this._log(`No piece on ${square}`);
+                return [];
+            }
+            if (piece.color !== this._turn) {
+                this._log(`Piece on ${square} is ${piece.color}, but it is ${this._turn}'s turn`);
+                return [];
+            }
             moves = this._generateMovesForPiece(square);
         } else {
             for (let r = 0; r < 8; r++) {
@@ -374,15 +393,18 @@ class Chess {
         }
 
         const legalMoves = this.moves({ verbose: true });
+        this._log(`Attempting move: ${JSON.stringify(moveData)}. Legal moves count: ${legalMoves.length}`);
+
         const move = legalMoves.find(m =>
             m.from === moveData.from &&
             m.to === moveData.to &&
             (!moveData.promotion || m.promotion === moveData.promotion)
         );
 
-        if (!move) return null;
-
-        // Perform move
+        if (!move) {
+            this._log(`Move ${JSON.stringify(moveData)} not found in legal moves`);
+            return null;
+        }
         const { r: r1, c: c1 } = this._sqToCoords(move.from);
         const { r: r2, c: c2 } = this._sqToCoords(move.to);
         const piece = this._board[r1][c1];

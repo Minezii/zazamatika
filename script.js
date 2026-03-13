@@ -324,12 +324,14 @@ function handleSquareClick(square) {
     if (clickedPiece) showPieceInfo(square);
 
     if (selectedSquare) {
+        console.log(`[CLIENT] selectedSquare: ${selectedSquare}, target: ${square}`);
         if (makeMove(selectedSquare, square, 'q')) {
             selectedSquare = null;
             validMoves = [];
             renderHighlights();
             return;
         }
+        console.log(`[CLIENT] makeMove returned false for ${selectedSquare} -> ${square}`);
     }
 
     const piece = game.get(square);
@@ -338,6 +340,7 @@ function handleSquareClick(square) {
 
         selectedSquare = square;
         let moves = game.moves({ square: square, verbose: true });
+        console.log(`[CLIENT] moves found for ${square}: ${moves.length}`);
 
         // Рентген слона
         if (xrayBishop === square) {
@@ -354,6 +357,7 @@ function handleSquareClick(square) {
 }
 
 function makeMove(from, to, promotion = 'q', emit = true) {
+    console.log(`[CLIENT] makeMove(${from}, ${to})`);
     if (currentHistoryIndex < historyMoves.length - 1) return false;
 
     // Бессмертие: только Король может съесть бессмертную фигуру
@@ -1698,6 +1702,7 @@ function ensureSocketConnection(callback) {
             "ngrok-skip-browser-warning": "69420"
         }
     });
+    window.socket = socket;
 
     socket.on('connect', () => {
         isConnecting = false;
